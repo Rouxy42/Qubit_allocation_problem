@@ -41,14 +41,10 @@ backend,circuit,n,m = instance_selector(instance_num)
 ###### en particulier sous Linux. Essayer de la remplacer par
 ###### qasmfile=f"./Instances/{l.rstrip()}.qasm". Cela devrait résoudre le problème.
 
-###### Voici un test (à supprimer !) pour s'assurer que tout va bien
-for i in range(1,10):
-    instance_num = i     #### Entre 1 et 9 inclue
+from Scripts import *
 
-    backend,circuit,n,m = instance_selector(instance_num)
-
-    r = fitness(list(range(n)))
-    print(f"n = {n}, m = {m} et fitness_test = {r}. Instance {instance_num} ok !")
+# Notez ici le nom du fichier que vous voulez executer !
+run("example")
 
 
     
