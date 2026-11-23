@@ -12,6 +12,8 @@ Il n'est pas nécessaire de comprendre que ce fait ce code.
 Il est là uniquement pour charger les instances.   
 """
 
+import os
+
 from qiskit import QuantumCircuit
 from qiskit.transpiler import Layout
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
@@ -113,7 +115,7 @@ def instance_selector(instance_num):
         backend = backend_selector(16)
         instance_num = 1
         
-    qasmfile = f".\Instances\Instance_{instance_num}.qasm"  ###### Il est possible de cette ligne soit problèmatique.
+    qasmfile = os.path.join(os.path.dirname(__file__), "Instances", f"Instance_{instance_num}.qasm")
     circuit = QuantumCircuit().from_qasm_file(qasmfile)
     circuit.remove_final_measurements()
     
