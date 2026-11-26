@@ -43,8 +43,14 @@ backend,circuit,n,m = instance_selector(instance_num)
 
 from Scripts import *
 
-# Notez ici le nom du fichier que vous voulez executer !
-run("example")
+
+
+print(f"=== Instance {instance_num} (n={n}, m={m}) ===")
+nom, best_mapping, best_cost, duree, nb_evals = run("genetique")
+print(f"\n[{nom}] Instance {instance_num} terminée en {duree:.2f}s")
+print(f"Évaluations Qiskit réelles : {nb_evals}")
+print(f"Meilleure association : {best_mapping}")
+print(f"Coût final : {best_cost}")
 
 
     
