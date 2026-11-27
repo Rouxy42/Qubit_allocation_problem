@@ -185,9 +185,12 @@ def _construire_mapping(tau, interactions, dist):
     return mapping
 
 
-def main():
+def main(inst=None, func_fitness=None, nb_q=None, nb_phys=None):
     global fitness, n, m, instance_num
-    from __main__ import fitness, n, m, instance_num
+    if func_fitness is not None:
+        instance_num, fitness, n, m = inst, func_fitness, nb_q, nb_phys
+    else:
+        from __main__ import fitness, n, m, instance_num
 
     try:
         from __main__ import circuit, backend
