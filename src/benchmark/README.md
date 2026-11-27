@@ -20,7 +20,13 @@ open src/benchmark/benchmark_report.html
 - `--algos genetique memetique` : tester uniquement certains algos.
 - `--runs 3` : nombre de répétitions par couple `(algo, instance)`.
 - `--save-txt` : met à jour les fichiers officiels dans `src/solutions/GroupeC_Challenge_X.txt` si un record est battu.
-- `--report-only` : régénère uniquement `benchmark_report.html` depuis `historique_benchmark.csv` sans relancer les calculs.
+- `--report-only` : régénère uniquement `benchmark_report.html` depuis tous les CSV du dossier `runs/` sans relancer les calculs.
+
+## Fonctionnement en équipe (zéro conflit Git)
+
+- Chaque lancement crée son propre fichier dans `src/benchmark/runs/` (ex. `2026-11-27_14h52m00_Baptiste.csv`).
+- Quand vous mergez une branche dans `main`, les fichiers `runs/*.csv` s'additionnent sans conflit.
+- Le dashboard `benchmark_report.html` lit automatiquement tout le dossier `runs/` + `src/solutions/` et affiche par défaut la **vue consolidée** (dernier résultat connu de chaque algo).
 
 ## Ajouter un nouvel algorithme
 

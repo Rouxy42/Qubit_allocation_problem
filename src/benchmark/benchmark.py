@@ -24,7 +24,7 @@ INSTANCES_A_TESTER = [1, 2, 3, 4]             # Mets list(range(1, 10)) pour les
 ALGORITHMES = None                            # None = détection auto dans Scripts/ (ou liste ex: ["genetique", "memetique"])
 NB_RUNS = 3                                   # Nombre de répétitions par couple (algo, instance)
 SAUVEGARDER_MEILLEURS_TXT = False             # True (ou --save-txt) pour générer les fichiers GroupeC_Challenge_X.txt
-HISTORIQUE_CSV = os.path.join(BENCHMARK_DIR, "historique_benchmark.csv")
+RUNS_DIR = os.path.join(BENCHMARK_DIR, "runs")
 RAPPORT_HTML = os.path.join(BENCHMARK_DIR, "benchmark_report.html")
 
 
@@ -125,6 +125,10 @@ def lancer_benchmark(instances, algos, nb_runs, meta, save_txt=SAUVEGARDER_MEILL
     if not algos_a_lancer:
         raise RuntimeError("Aucun algorithme compatible trouvé dans Scripts/.")
 
+    os.makedirs(RUNS_DIR, exist_ok=True)
+    safe_auteur = "".join(c if c.isalnum() or c in "-_" else "_" for c in meta["auteur"]).strip("_") or "user"
+    run_csv_path = os.path.join(RUNS_DIR, f"{meta['run_id']}_{safe_auteur}.csv")
+
     resultats = []
 
     print("==========================================================")
@@ -203,17 +207,17 @@ def lancer_benchmark(instances, algos, nb_runs, meta, save_txt=SAUVEGARDER_MEILL
             }
             resultats.append(ligne)
 
-            # Sauvegarde incrémentale : CSV + HTML mis à jour après chaque couple (instance, algo)
-            ajouter_a_historique_csv([ligne], HISTORIQUE_CSV)
-            generate_html_report(HISTORIQUE_CSV, RAPPORT_HTML, nom_groupe=NOM_GROUPE, records_dir=SOLUTIONS_DIR)
+            # Sauvegarde incrémentale : fichier CSV dédié à ce run + HTML consolidé
+            ajouter_a_historique_csv([ligne], run_csv_path)
+            generate_html_report(RUNS_DIR, RAPPORT_HTML, nom_groupe=NOM_GROUPE, records_dir=SOLUTIONS_DIR)
 
-    return resultats
+    return run_csv_path
 
 
 # =======================================================
 # 4. SAUVEGARDE HISTORIQUE CSV & GÉNÉRATION DU RAPPORT HTML
 # =======================================================
-def ajouter_a_historique_csv(resultats, csv_path=HISTORIQUE_CSV):
+def ajouter_a_historique_csv(resultats, csv_path):
     """Ajoute les nouveaux résultats à l'historique CSV sans écraser les précédents."""
     if not resultats:
         return
@@ -248,8 +252,8 @@ if __name__ == "__main__":
     args = parser_args()
     if not args.report_only:
         meta = collecter_metadonnees_version(note=args.note)
-        lancer_benchmark(args.instances, args.algos, args.runs, meta, save_txt=args.save_txt)
-        print(f"\nHistorique CSV mis à jour : {HISTORIQUE_CSV}")
+        run_csv = lancer_benchmark(args.instances, args.algos, args.runs, meta, save_txt=args.save_txt)
+        print(f"\nRun sauvegardé dans : {run_csv}")
 
-    out_html = generate_html_report(HISTORIQUE_CSV, RAPPORT_HTML, nom_groupe=NOM_GROUPE, records_dir=SOLUTIONS_DIR)
+    out_html = generate_html_report(RUNS_DIR, RAPPORT_HTML, nom_groupe=NOM_GROUPE, records_dir=SOLUTIONS_DIR)
     print(f"Dashboard HTML dynamique généré : {out_html}")

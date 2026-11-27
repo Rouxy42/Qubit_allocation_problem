@@ -50,40 +50,46 @@ def _to_number(val, default=0.0):
         return default
 
 
-def charger_historique_csv(csv_path):
-    """Charge les lignes de l'historique CSV sous forme de liste de dicts typés."""
-    if not os.path.exists(csv_path):
+def charger_historique_csv(csv_or_dir):
+    """Charge un fichier CSV ou tous les *.csv d'un dossier sous forme de liste de dicts typés."""
+    if os.path.isdir(csv_or_dir):
+        csv_files = sorted(glob.glob(os.path.join(csv_or_dir, "*.csv")))
+    elif os.path.exists(csv_or_dir):
+        csv_files = [csv_or_dir]
+    else:
         return []
 
     rows = []
-    with open(csv_path, "r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rows.append({
-                "run_id": row.get("run_id", ""),
-                "timestamp_iso": row.get("timestamp_iso", ""),
-                "timestamp_label": row.get("timestamp_label", row.get("run_id", "")),
-                "auteur": row.get("auteur", ""),
-                "git_branch": row.get("git_branch", "unknown"),
-                "git_commit": row.get("git_commit", "unknown"),
-                "git_dirty": row.get("git_dirty", "clean"),
-                "note": row.get("note", ""),
-                "nb_runs": int(_to_number(row.get("nb_runs"), 1)),
-                "instance": int(_to_number(row.get("instance"), 0)),
-                "n": int(_to_number(row.get("n"), 0)),
-                "m": int(_to_number(row.get("m"), 0)),
-                "algo": row.get("algo", ""),
-                "nom_affiche": row.get("nom_affiche", row.get("algo", "")),
-                "cout_min": _to_number(row.get("cout_min")),
-                "cout_moy": float(_to_number(row.get("cout_moy"))),
-                "cout_max": _to_number(row.get("cout_max")),
-                "cout_std": float(_to_number(row.get("cout_std"))),
-                "temps_moy": float(_to_number(row.get("temps_moy"))),
-                "temps_min": float(_to_number(row.get("temps_min"))),
-                "temps_max": float(_to_number(row.get("temps_max"))),
-                "evals_moy": float(_to_number(row.get("evals_moy"))),
-                "meilleur_mapping": row.get("meilleur_mapping", ""),
-            })
+    for csv_path in csv_files:
+        with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rows.append({
+                    "run_id": row.get("run_id", ""),
+                    "timestamp_iso": row.get("timestamp_iso", ""),
+                    "timestamp_label": row.get("timestamp_label", row.get("run_id", "")),
+                    "auteur": row.get("auteur", ""),
+                    "git_branch": row.get("git_branch", "unknown"),
+                    "git_commit": row.get("git_commit", "unknown"),
+                    "git_dirty": row.get("git_dirty", "clean"),
+                    "note": row.get("note", ""),
+                    "nb_runs": int(_to_number(row.get("nb_runs"), 1)),
+                    "instance": int(_to_number(row.get("instance"), 0)),
+                    "n": int(_to_number(row.get("n"), 0)),
+                    "m": int(_to_number(row.get("m"), 0)),
+                    "algo": row.get("algo", ""),
+                    "nom_affiche": row.get("nom_affiche", row.get("algo", "")),
+                    "cout_min": _to_number(row.get("cout_min")),
+                    "cout_moy": float(_to_number(row.get("cout_moy"))),
+                    "cout_max": _to_number(row.get("cout_max")),
+                    "cout_std": float(_to_number(row.get("cout_std"))),
+                    "temps_moy": float(_to_number(row.get("temps_moy"))),
+                    "temps_min": float(_to_number(row.get("temps_min"))),
+                    "temps_max": float(_to_number(row.get("temps_max"))),
+                    "evals_moy": float(_to_number(row.get("evals_moy"))),
+                    "meilleur_mapping": row.get("meilleur_mapping", ""),
+                })
+    rows.sort(key=lambda r: (r["timestamp_iso"] or r["run_id"], r["instance"], r["algo"]))
     return rows
 
 
@@ -609,6 +615,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
           run_id: obj.run_id || "",
           timestamp_iso: obj.timestamp_iso || "",
           timestamp_label: obj.timestamp_label || obj.run_id || "",
+          auteur: obj.auteur || "",
           git_branch: obj.git_branch || "unknown",
           git_commit: obj.git_commit || "unknown",
           git_dirty: obj.git_dirty || "clean",
@@ -683,10 +690,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       mainEl.style.display = "block";
       subEl.textContent = `Généré le ${state.generatedAt} • ${state.runs.length} version(s) suivie(s) • ${state.rows.length} mesures`;
 
+      const LATEST_PER_ALGO_ID = "__LATEST_PER_ALGO__";
+
       const runSelect = document.getElementById("run-select");
       const baseSelect = document.getElementById("baseline-select");
       runSelect.innerHTML = "";
       baseSelect.innerHTML = '<option value="">Aucune comparaison</option>';
+
+      runSelect.add(new Option("Vue consolidée (dernier résultat de chaque algo)", LATEST_PER_ALGO_ID));
+      baseSelect.add(new Option("Vue consolidée (dernier résultat de chaque algo)", LATEST_PER_ALGO_ID));
 
       const runsDesc = [...state.runs].reverse();
       runsDesc.forEach(run => {
@@ -696,8 +708,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
         baseSelect.add(opt2);
       });
 
-      state.selectedRunId = runsDesc[0].run_id;
-      state.baselineRunId = runsDesc.length > 1 ? runsDesc[1].run_id : "";
+      state.selectedRunId = LATEST_PER_ALGO_ID;
+      state.baselineRunId = "";
       runSelect.value = state.selectedRunId;
       baseSelect.value = state.baselineRunId;
 
@@ -744,6 +756,17 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function getFilteredRunRows(runId) {
+      if (runId === "__LATEST_PER_ALGO__") {
+        const latestMap = new Map();
+        const ordered = [...state.rows].sort((a, b) =>
+          (a.timestamp_iso || a.run_id).localeCompare(b.timestamp_iso || b.run_id)
+        );
+        for (const r of ordered) {
+          if (!state.activeAlgos.has(r.algo) || !state.activeInstances.has(r.instance)) continue;
+          latestMap.set(`${r.instance}::${r.algo}`, r);
+        }
+        return Array.from(latestMap.values());
+      }
       return state.rows.filter(r =>
         r.run_id === runId &&
         state.activeAlgos.has(r.algo) &&
@@ -804,25 +827,31 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       `;
     }
 
-    function renderSnapshotCharts(currentRows) {
+    function renderSnapshotCharts(currentRows, baselineRows = []) {
       const allAlgos = Array.from(state.activeAlgos).sort();
-      const instances = Array.from(new Set(currentRows.map(r => r.instance))).sort((a, b) => a - b);
+      const instances = Array.from(new Set([
+        ...currentRows.map(r => r.instance),
+        ...baselineRows.map(r => r.instance)
+      ])).sort((a, b) => a - b);
       const labels = instances.map(i => `Inst ${i}`);
 
-      const makeDatasets = (field, type = "bar") => allAlgos.map(algo => {
-        const c = algoColor(algo, allAlgos);
-        return {
-          label: algo,
-          data: instances.map(inst => {
-            const match = currentRows.find(r => r.instance === inst && r.algo === algo);
-            return match ? match[field] : null;
-          }),
-          backgroundColor: type === "bar" ? c + "bb" : c,
-          borderColor: c,
-          borderWidth: 2,
-          tension: 0.25
-        };
-      });
+      const makeDatasets = (rows, field, type = "bar", suffix = "", isBaseline = false) => allAlgos
+        .filter(algo => rows.some(r => r.algo === algo))
+        .map(algo => {
+          const c = algoColor(algo, allAlgos);
+          return {
+            label: `${algo}${suffix}`,
+            data: instances.map(inst => {
+              const match = rows.find(r => r.instance === inst && r.algo === algo);
+              return match ? match[field] : null;
+            }),
+            backgroundColor: type === "bar" ? c + (isBaseline ? "44" : "bb") : c,
+            borderColor: c,
+            borderWidth: isBaseline ? 1.5 : 2,
+            borderDash: isBaseline ? [4, 3] : undefined,
+            tension: 0.25
+          };
+        });
 
       const baseOpts = {
         responsive: true,
@@ -836,14 +865,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       destroyChart("cost");
       const costDatasets = [
-        ...makeDatasets("cout_min", "bar").map(ds => ({ ...ds, label: `${ds.label} (min)` })),
-        ...makeDatasets("cout_moy", "line").map(ds => ({
+        ...makeDatasets(currentRows, "cout_min", "bar", " (min)"),
+        ...makeDatasets(currentRows, "cout_moy", "line", " (moy)").map(ds => ({
           ...ds,
           type: "line",
-          label: `${ds.label} (moy)`,
           borderDash: [4, 4],
           fill: false
-        }))
+        })),
+        ...(baselineRows.length ? makeDatasets(baselineRows, "cout_min", "bar", " [baseline]", true) : [])
       ];
       state.charts["cost"] = new Chart(document.getElementById("chart-cost"), {
         type: "bar",
@@ -854,29 +883,55 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       destroyChart("time");
       state.charts["time"] = new Chart(document.getElementById("chart-time"), {
         type: "bar",
-        data: { labels, datasets: makeDatasets("temps_moy", "bar") },
+        data: {
+          labels,
+          datasets: [
+            ...makeDatasets(currentRows, "temps_moy", "bar"),
+            ...(baselineRows.length ? makeDatasets(baselineRows, "temps_moy", "bar", " [baseline]", true) : [])
+          ]
+        },
         options: baseOpts
       });
 
       destroyChart("evals");
       state.charts["evals"] = new Chart(document.getElementById("chart-evals"), {
         type: "bar",
-        data: { labels, datasets: makeDatasets("evals_moy", "bar") },
+        data: {
+          labels,
+          datasets: [
+            ...makeDatasets(currentRows, "evals_moy", "bar"),
+            ...(baselineRows.length ? makeDatasets(baselineRows, "evals_moy", "bar", " [baseline]", true) : [])
+          ]
+        },
         options: baseOpts
       });
 
       destroyChart("scatter");
-      const scatterDatasets = allAlgos.map(algo => {
-        const c = algoColor(algo, allAlgos);
-        return {
-          label: algo,
-          backgroundColor: c,
-          pointRadius: 6,
-          data: currentRows
-            .filter(r => r.algo === algo)
-            .map(r => ({ x: r.temps_moy, y: r.cout_min, inst: r.instance }))
-        };
-      });
+      const scatterDatasets = [
+        ...allAlgos
+          .filter(algo => currentRows.some(r => r.algo === algo))
+          .map(algo => ({
+            label: algo,
+            backgroundColor: algoColor(algo, allAlgos),
+            pointRadius: 6,
+            data: currentRows
+              .filter(r => r.algo === algo)
+              .map(r => ({ x: r.temps_moy, y: r.cout_min, inst: r.instance }))
+          })),
+        ...allAlgos
+          .filter(algo => baselineRows.some(r => r.algo === algo))
+          .map(algo => ({
+            label: `${algo} [baseline]`,
+            backgroundColor: algoColor(algo, allAlgos) + "55",
+            borderColor: algoColor(algo, allAlgos),
+            borderWidth: 1.5,
+            pointStyle: "triangle",
+            pointRadius: 6,
+            data: baselineRows
+              .filter(r => r.algo === algo)
+              .map(r => ({ x: r.temps_moy, y: r.cout_min, inst: r.instance }))
+          }))
+      ];
       state.charts["scatter"] = new Chart(document.getElementById("chart-scatter"), {
         type: "scatter",
         data: { datasets: scatterDatasets },
@@ -917,12 +972,16 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
         return state.sortAsc ? cmp : -cmp;
       });
 
+      const isConsolidated = state.selectedRunId === "__LATEST_PER_ALGO__";
       tbody.innerHTML = sorted.map(r => {
         const base = baselineRows.find(b => b.instance === r.instance && b.algo === r.algo);
+        const runMeta = isConsolidated
+          ? `<br><span class="subtitle">${r.timestamp_label}${r.auteur ? ` • ${r.auteur}` : ""}</span>`
+          : "";
         return `
           <tr>
             <td><strong>Inst ${r.instance}</strong> <span class="subtitle">(${r.n}→${r.m})</span></td>
-            <td><strong>${r.algo}</strong></td>
+            <td><strong>${r.algo}</strong>${runMeta}</td>
             <td><strong>${r.cout_min}</strong> ${deltaBadge(r.cout_min, base?.cout_min)}</td>
             <td>${r.cout_moy.toFixed(2)} <span class="subtitle">± ${r.cout_std.toFixed(2)}</span></td>
             <td>${r.cout_max}</td>
@@ -1015,7 +1074,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       const currentRows = getFilteredRunRows(state.selectedRunId);
       const baselineRows = state.baselineRunId ? getFilteredRunRows(state.baselineRunId) : [];
       renderKPIs(currentRows);
-      renderSnapshotCharts(currentRows);
+      renderSnapshotCharts(currentRows, baselineRows);
       renderSnapshotTable(currentRows, baselineRows);
       renderEvolutionChart();
       renderRecordsAndHistory();
