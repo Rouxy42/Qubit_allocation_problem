@@ -20,7 +20,7 @@ def fitness(mapping):
 ##     ainsi que "backend" et "circuit" qui sont 
 ##     utiliser dans la fonction objectif (voir fitness) 
 ##-------------------------------------------------------
-instance_num=1     #### Entre 1 et 9 inclue
+instance_num=2     #### Entre 1 et 9 inclue
 
 backend,circuit,n,m = instance_selector(instance_num)
 
@@ -46,7 +46,7 @@ from Scripts import *
 
 
 print(f"=== Instance {instance_num} (n={n}, m={m}) ===")
-nom, best_mapping, best_cost, duree, nb_evals = run("genetique")
+nom, best_mapping, best_cost, duree, nb_evals = run("aco")
 print(f"\n[{nom}] Instance {instance_num} terminée en {duree:.2f}s")
 print(f"Évaluations Qiskit réelles : {nb_evals}")
 print(f"Meilleure association : {best_mapping}")
