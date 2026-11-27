@@ -112,11 +112,13 @@ def mutation(individu):
     # Renvoie l'individu muté
     return mutant
 
-def main():
+def main(inst=None, func_fitness=None, nb_q=None, nb_phys=None):
     global fitness, n, m, instance_num
-    from __main__ import fitness, n, m, instance_num
+    if func_fitness is not None:
+        instance_num, fitness, n, m = inst, func_fitness, nb_q, nb_phys
+    else:
+        from __main__ import fitness, n, m, instance_num
     memo_fitness.clear()
-    
     # 2. Exécution de l'Algorithme Génétique
     debut = time.time()  # Enregistre l'horodatage de départ pour calculer la durée totale
     # Crée la population initiale (génération 0) composée de pop_size solutions aléatoires
