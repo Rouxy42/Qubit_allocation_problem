@@ -31,28 +31,33 @@ RAPPORT_HTML = os.path.join(BENCHMARK_DIR, "benchmark_report.html")
 # =======================================================
 # 2. DÉCOUVERTE DES ALGORITHMES & MÉTADONNÉES GIT
 # =======================================================
+ALGORITHMES_IGNORES = {"example"}             # Scripts utilitaires/exemples à ignorer lors de la détection auto
+
+
+def _accepte_args_benchmark(main_fn):
+    """Retourne True si main() accepte (inst, fitness, n, m), False si main() s'appelle sans argument."""
+    sig = inspect.signature(main_fn)
+    params = list(sig.parameters.values())
+    accepts_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+    positional_count = sum(
+        1 for p in params
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    )
+    return accepts_varargs or positional_count >= 4
+
+
 def decouvrir_algorithmes(scripts_pkg, selection=None):
-    """Retourne les algorithmes de Scripts/ compatibles avec main(inst, fitness, n, m)."""
+    """Retourne les algorithmes de Scripts/ ayant une fonction main()."""
     if selection:
         return list(selection)
 
     compatibles = []
     for nom, mod in sorted(scripts_pkg._MODULES.items()):
+        if nom in ALGORITHMES_IGNORES:
+            continue
         main_fn = getattr(mod, "main", None)
-        if not callable(main_fn):
-            continue
-        try:
-            sig = inspect.signature(main_fn)
-            params = list(sig.parameters.values())
-            accepts_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
-            positional_count = sum(
-                1 for p in params
-                if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            )
-            if accepts_varargs or positional_count >= 4:
-                compatibles.append(nom)
-        except (TypeError, ValueError):
-            continue
+        if callable(main_fn):
+            compatibles.append(nom)
     return compatibles
 
 
@@ -145,8 +150,18 @@ def lancer_benchmark(instances, algos, nb_runs, meta, save_txt=SAUVEGARDER_MEILL
         def fitness_inst(mapping):
             return fitness_inner(mapping, circuit, backend)
 
+        # Expose le contexte sur __main__ pour les scripts qui utilisent `from __main__ import ...` (ex: aco.py)
+        main_mod = sys.modules["__main__"]
+        main_mod.instance_num = inst
+        main_mod.backend = backend
+        main_mod.circuit = circuit
+        main_mod.n = n
+        main_mod.m = m
+        main_mod.fitness = fitness_inst
+
         for algo_name in algos_a_lancer:
             module_algo = getattr(Scripts, algo_name)
+            passe_args = _accepte_args_benchmark(module_algo.main)
             couts_runs = []
             temps_runs = []
             evals_runs = []
@@ -156,9 +171,11 @@ def lancer_benchmark(instances, algos, nb_runs, meta, save_txt=SAUVEGARDER_MEILL
 
             for r in range(1, nb_runs + 1):
                 print(f"  -> [{algo_name}] Run {r}/{nb_runs}...", end=" ", flush=True)
-                nom_affiche, mapping, cout, duree, nb_evals = module_algo.main(
-                    inst, fitness_inst, n, m
-                )
+                if passe_args:
+                    res = module_algo.main(inst, fitness_inst, n, m)
+                else:
+                    res = module_algo.main()
+                nom_affiche, mapping, cout, duree, nb_evals = res
                 nom_affiche_final = nom_affiche or algo_name
                 couts_runs.append(cout)
                 temps_runs.append(duree)
