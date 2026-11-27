@@ -1,0 +1,1077 @@
+# -*- coding: utf-8 -*-
+"""
+Générateur de rapport HTML dynamique pour le benchmark Qubit Allocation Problem.
+Lit `historique_benchmark.csv` et les fichiers `GroupeC_Challenge_*.txt`,
+puis génère un dashboard HTML autonome (`benchmark_report.html`) avec Chart.js.
+"""
+
+import csv
+import glob
+import json
+import os
+import re
+from datetime import datetime
+
+
+CSV_FIELDS = [
+    "run_id",
+    "timestamp_iso",
+    "timestamp_label",
+    "auteur",
+    "git_branch",
+    "git_commit",
+    "git_dirty",
+    "note",
+    "nb_runs",
+    "instance",
+    "n",
+    "m",
+    "algo",
+    "nom_affiche",
+    "cout_min",
+    "cout_moy",
+    "cout_max",
+    "cout_std",
+    "temps_moy",
+    "temps_min",
+    "temps_max",
+    "evals_moy",
+    "meilleur_mapping",
+]
+
+
+def _to_number(val, default=0.0):
+    if val is None or val == "":
+        return default
+    try:
+        f = float(val)
+        return int(f) if f.is_integer() else f
+    except ValueError:
+        return default
+
+
+def charger_historique_csv(csv_path):
+    """Charge les lignes de l'historique CSV sous forme de liste de dicts typés."""
+    if not os.path.exists(csv_path):
+        return []
+
+    rows = []
+    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append({
+                "run_id": row.get("run_id", ""),
+                "timestamp_iso": row.get("timestamp_iso", ""),
+                "timestamp_label": row.get("timestamp_label", row.get("run_id", "")),
+                "auteur": row.get("auteur", ""),
+                "git_branch": row.get("git_branch", "unknown"),
+                "git_commit": row.get("git_commit", "unknown"),
+                "git_dirty": row.get("git_dirty", "clean"),
+                "note": row.get("note", ""),
+                "nb_runs": int(_to_number(row.get("nb_runs"), 1)),
+                "instance": int(_to_number(row.get("instance"), 0)),
+                "n": int(_to_number(row.get("n"), 0)),
+                "m": int(_to_number(row.get("m"), 0)),
+                "algo": row.get("algo", ""),
+                "nom_affiche": row.get("nom_affiche", row.get("algo", "")),
+                "cout_min": _to_number(row.get("cout_min")),
+                "cout_moy": float(_to_number(row.get("cout_moy"))),
+                "cout_max": _to_number(row.get("cout_max")),
+                "cout_std": float(_to_number(row.get("cout_std"))),
+                "temps_moy": float(_to_number(row.get("temps_moy"))),
+                "temps_min": float(_to_number(row.get("temps_min"))),
+                "temps_max": float(_to_number(row.get("temps_max"))),
+                "evals_moy": float(_to_number(row.get("evals_moy"))),
+                "meilleur_mapping": row.get("meilleur_mapping", ""),
+            })
+    return rows
+
+
+def charger_records_challenge(base_dir, nom_groupe="GroupeC"):
+    """Lit les fichiers GroupeC_Challenge_X.txt existants."""
+    records = {}
+    pattern = os.path.join(base_dir, f"{nom_groupe}_Challenge_*.txt")
+    for path in sorted(glob.glob(pattern)):
+        match = re.search(r"_Challenge_(\d+)\.txt$", path)
+        if not match:
+            continue
+        inst = int(match.group(1))
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                tokens = f.read().strip().split()
+            if tokens:
+                records[inst] = {
+                    "instance": inst,
+                    "cout": _to_number(tokens[-1]),
+                    "mapping": " ".join(tokens[:-1]),
+                    "fichier": os.path.basename(path),
+                }
+        except OSError:
+            continue
+    return records
+
+
+def generate_html_report(
+    csv_path="historique_benchmark.csv",
+    output_html="benchmark_report.html",
+    nom_groupe="GroupeC",
+    records_dir=None,
+):
+    """Génère le rapport HTML autonome à partir de l'historique CSV."""
+    base_dir = records_dir or (os.path.dirname(os.path.abspath(csv_path)) or ".")
+    rows = charger_historique_csv(csv_path)
+    records = charger_records_challenge(base_dir, nom_groupe=nom_groupe)
+    generated_at = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
+
+    payload = {
+        "rows": rows,
+        "records": records,
+        "generated_at": generated_at,
+        "csv_filename": os.path.basename(csv_path),
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    html = _HTML_TEMPLATE.replace("__BENCHMARK_DATA_JSON__", payload_json)
+
+    tmp_html = f"{output_html}.tmp"
+    with open(tmp_html, "w", encoding="utf-8") as f:
+        f.write(html)
+    os.replace(tmp_html, output_html)
+
+    return output_html
+
+
+_HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Benchmark Qubit Allocation — Dashboard & Suivi</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-2: #273449;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --green: #34d399;
+      --red: #f87171;
+      --amber: #fbbf24;
+      --purple: #a78bfa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: var(--surface-2); border-color: var(--accent); }
+    .btn-primary {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .control-group label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    select {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.9rem;
+    }
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pill {
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .pill.active {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .kpi {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .kpi-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .kpi-value {
+      font-size: 1.45rem;
+      font-weight: 700;
+      margin: 4px 0 2px;
+    }
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .tab-btn.active {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--accent);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 1.02rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .chart-wrap {
+      position: relative;
+      height: 310px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      padding: 10px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: var(--text); }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-good { background: rgba(52, 211, 153, 0.16); color: var(--green); }
+    .badge-bad { background: rgba(248, 113, 113, 0.16); color: var(--red); }
+    .badge-neutral { background: rgba(148, 163, 184, 0.16); color: var(--muted); }
+    .badge-warn { background: rgba(251, 191, 36, 0.16); color: var(--amber); }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
+    }
+    .mapping-cell {
+      max-width: 240px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+    }
+    @media (max-width: 640px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Qubit Allocation — Benchmark &amp; Suivi des Versions</h1>
+        <div class="subtitle" id="subtitle-info">Chargement...</div>
+      </div>
+      <div class="header-actions">
+        <label class="btn btn-primary" for="csv-upload">Importer un CSV</label>
+        <input id="csv-upload" type="file" accept=".csv" style="display:none" />
+      </div>
+    </header>
+
+    <div id="empty-container" class="empty-state" style="display:none">
+      <h2>Aucune donnée de benchmark disponible</h2>
+      <p>Lancez <code>python3 benchmark.py</code> dans <code>src/</code> ou importez un fichier <code>historique_benchmark.csv</code>.</p>
+    </div>
+
+    <div id="main-content" style="display:none">
+      <div class="controls">
+        <div class="control-group">
+          <label for="run-select">Version / Lancement analysé</label>
+          <select id="run-select"></select>
+        </div>
+        <div class="control-group">
+          <label for="baseline-select">Comparer avec (Baseline)</label>
+          <select id="baseline-select"></select>
+        </div>
+        <div class="control-group">
+          <label>Algorithmes affichés</label>
+          <div class="pill-list" id="algo-pills"></div>
+        </div>
+        <div class="control-group">
+          <label>Instances affichées</label>
+          <div class="pill-list" id="instance-pills"></div>
+        </div>
+      </div>
+
+      <div class="kpis" id="kpi-cards"></div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="snapshot">Comparatif du lancement</button>
+        <button class="tab-btn" data-tab="evolution">Évolution entre versions</button>
+        <button class="tab-btn" data-tab="records">Records &amp; Historique des runs</button>
+      </div>
+
+      <section id="tab-snapshot" class="tab-panel active">
+        <div class="charts-grid">
+          <div class="card">
+            <h2>Qualité des solutions (Coût min &amp; moyen)</h2>
+            <div class="chart-wrap"><canvas id="chart-cost"></canvas></div>
+          </div>
+          <div class="card">
+            <h2>Temps d'exécution moyen (secondes)</h2>
+            <div class="chart-wrap"><canvas id="chart-time"></canvas></div>
+          </div>
+          <div class="card">
+            <h2>Évaluations Qiskit moyennes</h2>
+            <div class="chart-wrap"><canvas id="chart-evals"></canvas></div>
+          </div>
+          <div class="card">
+            <h2>Compromis Coût min vs Temps moyen</h2>
+            <div class="chart-wrap"><canvas id="chart-scatter"></canvas></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Détails par instance et algorithme <span class="subtitle">(cliquer sur une colonne pour trier)</span></h2>
+          <div style="overflow-x:auto">
+            <table id="snapshot-table">
+              <thead>
+                <tr>
+                  <th data-sort="instance">Instance</th>
+                  <th data-sort="algo">Algorithme</th>
+                  <th data-sort="cout_min">Coût Min</th>
+                  <th data-sort="cout_moy">Coût Moy ± Std</th>
+                  <th data-sort="cout_max">Coût Max</th>
+                  <th data-sort="temps_moy">Temps Moy</th>
+                  <th data-sort="evals_moy">Évals Qiskit</th>
+                  <th>Meilleur Mapping</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-evolution" class="tab-panel">
+        <div class="controls" style="margin-bottom:18px">
+          <div class="control-group">
+            <label for="evo-metric">Métrique suivie</label>
+            <select id="evo-metric">
+              <option value="cout_min">Meilleur coût (cout_min)</option>
+              <option value="cout_moy">Coût moyen (cout_moy)</option>
+              <option value="temps_moy">Temps moyen (s)</option>
+              <option value="evals_moy">Évaluations Qiskit moyennes</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="evo-instance">Instance</label>
+            <select id="evo-instance"></select>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Évolution chronologique des versions</h2>
+          <div class="chart-wrap" style="height:380px"><canvas id="chart-evolution"></canvas></div>
+        </div>
+      </section>
+
+      <section id="tab-records" class="tab-panel">
+        <div class="card">
+          <h2>Records officiels (fichiers Challenge)</h2>
+          <div style="overflow-x:auto">
+            <table id="records-table">
+              <thead>
+                <tr>
+                  <th>Instance</th>
+                  <th>Meilleur Coût</th>
+                  <th>Fichier</th>
+                  <th>Mapping</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Journal des lancements</h2>
+          <div style="overflow-x:auto">
+            <table id="history-table">
+              <thead>
+                <tr>
+                  <th>Date &amp; Heure</th>
+                  <th>Auteur</th>
+                  <th>Branche</th>
+                  <th>Commit</th>
+                  <th>Note</th>
+                  <th>Algos</th>
+                  <th>Instances</th>
+                  <th>Runs/couple</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const INITIAL_DATA = __BENCHMARK_DATA_JSON__;
+
+    const PALETTE = [
+      "#38bdf8", "#34d399", "#a78bfa", "#fbbf24", "#f87171",
+      "#fb7185", "#2dd4bf", "#818cf8", "#facc15", "#4ade80"
+    ];
+
+    let state = {
+      rows: INITIAL_DATA.rows || [],
+      records: INITIAL_DATA.records || {},
+      generatedAt: INITIAL_DATA.generated_at || "",
+      runs: [],
+      selectedRunId: "",
+      baselineRunId: "",
+      activeAlgos: new Set(),
+      activeInstances: new Set(),
+      sortKey: "instance",
+      sortAsc: true,
+      charts: {}
+    };
+
+    function algoColor(algo, allAlgos) {
+      const idx = allAlgos.indexOf(algo);
+      return PALETTE[(idx >= 0 ? idx : 0) % PALETTE.length];
+    }
+
+    function parseCSV(text) {
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+      const splitCSVLine = (line) => {
+        const res = [];
+        let cur = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+            else inQuotes = !inQuotes;
+          } else if (ch === ',' && !inQuotes) {
+            res.push(cur); cur = "";
+          } else {
+            cur += ch;
+          }
+        }
+        res.push(cur);
+        return res;
+      };
+      const headers = splitCSVLine(lines[0]);
+      return lines.slice(1).filter(Boolean).map(line => {
+        const vals = splitCSVLine(line);
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = vals[i] ?? "");
+        const num = (v, d = 0) => (v === "" || v === undefined || isNaN(Number(v))) ? d : Number(v);
+        return {
+          run_id: obj.run_id || "",
+          timestamp_iso: obj.timestamp_iso || "",
+          timestamp_label: obj.timestamp_label || obj.run_id || "",
+          git_branch: obj.git_branch || "unknown",
+          git_commit: obj.git_commit || "unknown",
+          git_dirty: obj.git_dirty || "clean",
+          note: obj.note || "",
+          nb_runs: num(obj.nb_runs, 1),
+          instance: num(obj.instance, 0),
+          n: num(obj.n, 0),
+          m: num(obj.m, 0),
+          algo: obj.algo || "",
+          nom_affiche: obj.nom_affiche || obj.algo || "",
+          cout_min: num(obj.cout_min),
+          cout_moy: num(obj.cout_moy),
+          cout_max: num(obj.cout_max),
+          cout_std: num(obj.cout_std),
+          temps_moy: num(obj.temps_moy),
+          temps_min: num(obj.temps_min),
+          temps_max: num(obj.temps_max),
+          evals_moy: num(obj.evals_moy),
+          meilleur_mapping: obj.meilleur_mapping || ""
+        };
+      });
+    }
+
+    function buildRunsIndex() {
+      const map = new Map();
+      for (const r of state.rows) {
+        if (!map.has(r.run_id)) {
+          map.set(r.run_id, {
+            run_id: r.run_id,
+            timestamp_iso: r.timestamp_iso,
+            timestamp_label: r.timestamp_label,
+            auteur: r.auteur || "",
+            git_branch: r.git_branch,
+            git_commit: r.git_commit,
+            git_dirty: r.git_dirty,
+            note: r.note,
+            nb_runs: r.nb_runs,
+            algos: new Set(),
+            instances: new Set()
+          });
+        }
+        const entry = map.get(r.run_id);
+        entry.algos.add(r.algo);
+        entry.instances.add(r.instance);
+      }
+      state.runs = Array.from(map.values()).sort((a, b) =>
+        (a.timestamp_iso || a.run_id).localeCompare(b.timestamp_iso || b.run_id)
+      );
+    }
+
+    function formatRunOption(run) {
+      const dirty = run.git_dirty === "dirty" ? "*" : "";
+      const auteur = run.auteur ? ` • ${run.auteur}` : "";
+      const note = run.note ? ` — "${run.note}"` : "";
+      return `${run.timestamp_label}${auteur} • ${run.git_branch} @ ${run.git_commit}${dirty}${note}`;
+    }
+
+    function initControls() {
+      buildRunsIndex();
+      const emptyEl = document.getElementById("empty-container");
+      const mainEl = document.getElementById("main-content");
+      const subEl = document.getElementById("subtitle-info");
+
+      if (state.rows.length === 0) {
+        emptyEl.style.display = "block";
+        mainEl.style.display = "none";
+        subEl.textContent = `Rapport généré le ${state.generatedAt} • Aucune donnée`;
+        return;
+      }
+
+      emptyEl.style.display = "none";
+      mainEl.style.display = "block";
+      subEl.textContent = `Généré le ${state.generatedAt} • ${state.runs.length} version(s) suivie(s) • ${state.rows.length} mesures`;
+
+      const runSelect = document.getElementById("run-select");
+      const baseSelect = document.getElementById("baseline-select");
+      runSelect.innerHTML = "";
+      baseSelect.innerHTML = '<option value="">Aucune comparaison</option>';
+
+      const runsDesc = [...state.runs].reverse();
+      runsDesc.forEach(run => {
+        const opt1 = new Option(formatRunOption(run), run.run_id);
+        const opt2 = new Option(formatRunOption(run), run.run_id);
+        runSelect.add(opt1);
+        baseSelect.add(opt2);
+      });
+
+      state.selectedRunId = runsDesc[0].run_id;
+      state.baselineRunId = runsDesc.length > 1 ? runsDesc[1].run_id : "";
+      runSelect.value = state.selectedRunId;
+      baseSelect.value = state.baselineRunId;
+
+      const allAlgos = Array.from(new Set(state.rows.map(r => r.algo))).sort();
+      const allInstances = Array.from(new Set(state.rows.map(r => r.instance))).sort((a, b) => a - b);
+      state.activeAlgos = new Set(allAlgos);
+      state.activeInstances = new Set(allInstances);
+
+      const algoPills = document.getElementById("algo-pills");
+      algoPills.innerHTML = "";
+      allAlgos.forEach(algo => {
+        const el = document.createElement("span");
+        el.className = "pill active";
+        el.textContent = algo;
+        el.onclick = () => {
+          if (state.activeAlgos.has(algo) && state.activeAlgos.size > 1) state.activeAlgos.delete(algo);
+          else state.activeAlgos.add(algo);
+          el.classList.toggle("active", state.activeAlgos.has(algo));
+          renderAll();
+        };
+        algoPills.appendChild(el);
+      });
+
+      const instPills = document.getElementById("instance-pills");
+      instPills.innerHTML = "";
+      allInstances.forEach(inst => {
+        const el = document.createElement("span");
+        el.className = "pill active";
+        el.textContent = `Inst ${inst}`;
+        el.onclick = () => {
+          if (state.activeInstances.has(inst) && state.activeInstances.size > 1) state.activeInstances.delete(inst);
+          else state.activeInstances.add(inst);
+          el.classList.toggle("active", state.activeInstances.has(inst));
+          renderAll();
+        };
+        instPills.appendChild(el);
+      });
+
+      const evoInst = document.getElementById("evo-instance");
+      evoInst.innerHTML = '<option value="all">Moyenne sur les instances sélectionnées</option>';
+      allInstances.forEach(inst => evoInst.add(new Option(`Instance ${inst}`, String(inst))));
+
+      renderAll();
+    }
+
+    function getFilteredRunRows(runId) {
+      return state.rows.filter(r =>
+        r.run_id === runId &&
+        state.activeAlgos.has(r.algo) &&
+        state.activeInstances.has(r.instance)
+      );
+    }
+
+    function destroyChart(id) {
+      if (state.charts[id]) {
+        state.charts[id].destroy();
+        delete state.charts[id];
+      }
+    }
+
+    function renderKPIs(currentRows) {
+      const container = document.getElementById("kpi-cards");
+      if (currentRows.length === 0) {
+        container.innerHTML = '<div class="kpi"><div class="kpi-label">Info</div><div class="kpi-value">0</div><div class="kpi-sub">Aucune ligne avec ces filtres</div></div>';
+        return;
+      }
+
+      const bestRow = currentRows.reduce((a, b) => (a.cout_min <= b.cout_min ? a : b));
+      const fastestRow = currentRows.reduce((a, b) => (a.temps_moy <= b.temps_moy ? a : b));
+      const minEvalsRow = currentRows.reduce((a, b) => (a.evals_moy <= b.evals_moy ? a : b));
+
+      // Nombre de fois où chaque algo est le meilleur sur une instance
+      const wins = {};
+      const byInst = {};
+      currentRows.forEach(r => {
+        if (!byInst[r.instance] || r.cout_min < byInst[r.instance].cout_min) {
+          byInst[r.instance] = r;
+        }
+      });
+      Object.values(byInst).forEach(r => { wins[r.algo] = (wins[r.algo] || 0) + 1; });
+      const topAlgo = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
+
+      container.innerHTML = `
+        <div class="kpi">
+          <div class="kpi-label">Meilleur coût (sélection)</div>
+          <div class="kpi-value" style="color:var(--green)">${bestRow.cout_min}</div>
+          <div class="kpi-sub">${bestRow.algo} sur Inst ${bestRow.instance} (moy: ${bestRow.cout_moy.toFixed(1)})</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Algo dominant</div>
+          <div class="kpi-value" style="color:var(--accent)">${topAlgo ? topAlgo[0] : "-"}</div>
+          <div class="kpi-sub">${topAlgo ? topAlgo[1] : 0} / ${Object.keys(byInst).length} instances gagnées</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Temps moyen le plus rapide</div>
+          <div class="kpi-value" style="color:var(--purple)">${fastestRow.temps_moy.toFixed(2)}s</div>
+          <div class="kpi-sub">${fastestRow.algo} sur Inst ${fastestRow.instance}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Moins d'évaluations Qiskit</div>
+          <div class="kpi-value" style="color:var(--amber)">${Math.round(minEvalsRow.evals_moy)}</div>
+          <div class="kpi-sub">${minEvalsRow.algo} sur Inst ${minEvalsRow.instance}</div>
+        </div>
+      `;
+    }
+
+    function renderSnapshotCharts(currentRows) {
+      const allAlgos = Array.from(state.activeAlgos).sort();
+      const instances = Array.from(new Set(currentRows.map(r => r.instance))).sort((a, b) => a - b);
+      const labels = instances.map(i => `Inst ${i}`);
+
+      const makeDatasets = (field, type = "bar") => allAlgos.map(algo => {
+        const c = algoColor(algo, allAlgos);
+        return {
+          label: algo,
+          data: instances.map(inst => {
+            const match = currentRows.find(r => r.instance === inst && r.algo === algo);
+            return match ? match[field] : null;
+          }),
+          backgroundColor: type === "bar" ? c + "bb" : c,
+          borderColor: c,
+          borderWidth: 2,
+          tension: 0.25
+        };
+      });
+
+      const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#cbd5e1" } } },
+        scales: {
+          x: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,0.1)" } },
+          y: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,0.1)" } }
+        }
+      };
+
+      destroyChart("cost");
+      const costDatasets = [
+        ...makeDatasets("cout_min", "bar").map(ds => ({ ...ds, label: `${ds.label} (min)` })),
+        ...makeDatasets("cout_moy", "line").map(ds => ({
+          ...ds,
+          type: "line",
+          label: `${ds.label} (moy)`,
+          borderDash: [4, 4],
+          fill: false
+        }))
+      ];
+      state.charts["cost"] = new Chart(document.getElementById("chart-cost"), {
+        type: "bar",
+        data: { labels, datasets: costDatasets },
+        options: baseOpts
+      });
+
+      destroyChart("time");
+      state.charts["time"] = new Chart(document.getElementById("chart-time"), {
+        type: "bar",
+        data: { labels, datasets: makeDatasets("temps_moy", "bar") },
+        options: baseOpts
+      });
+
+      destroyChart("evals");
+      state.charts["evals"] = new Chart(document.getElementById("chart-evals"), {
+        type: "bar",
+        data: { labels, datasets: makeDatasets("evals_moy", "bar") },
+        options: baseOpts
+      });
+
+      destroyChart("scatter");
+      const scatterDatasets = allAlgos.map(algo => {
+        const c = algoColor(algo, allAlgos);
+        return {
+          label: algo,
+          backgroundColor: c,
+          pointRadius: 6,
+          data: currentRows
+            .filter(r => r.algo === algo)
+            .map(r => ({ x: r.temps_moy, y: r.cout_min, inst: r.instance }))
+        };
+      });
+      state.charts["scatter"] = new Chart(document.getElementById("chart-scatter"), {
+        type: "scatter",
+        data: { datasets: scatterDatasets },
+        options: {
+          ...baseOpts,
+          plugins: {
+            ...baseOpts.plugins,
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label} (Inst ${ctx.raw.inst}): coût=${ctx.raw.y}, temps=${ctx.raw.x.toFixed(2)}s`
+              }
+            }
+          },
+          scales: {
+            x: { ...baseOpts.scales.x, title: { display: true, text: "Temps moyen (s)", color: "#94a3b8" } },
+            y: { ...baseOpts.scales.y, title: { display: true, text: "Coût min", color: "#94a3b8" } }
+          }
+        }
+      });
+    }
+
+    function deltaBadge(curr, prev, unit = "", lowerIsBetter = true) {
+      if (prev === undefined || prev === null) return "";
+      const diff = curr - prev;
+      if (Math.abs(diff) < 1e-6) return '<span class="badge badge-neutral">=</span>';
+      const better = lowerIsBetter ? diff < 0 : diff > 0;
+      const sign = diff > 0 ? "+" : "";
+      const formatted = Number.isInteger(diff) ? `${sign}${diff}` : `${sign}${diff.toFixed(2)}`;
+      return `<span class="badge ${better ? "badge-good" : "badge-bad"}">${formatted}${unit}</span>`;
+    }
+
+    function renderSnapshotTable(currentRows, baselineRows) {
+      const tbody = document.querySelector("#snapshot-table tbody");
+      const sorted = [...currentRows].sort((a, b) => {
+        const av = a[state.sortKey];
+        const bv = b[state.sortKey];
+        const cmp = typeof av === "string" ? av.localeCompare(bv) : av - bv;
+        return state.sortAsc ? cmp : -cmp;
+      });
+
+      tbody.innerHTML = sorted.map(r => {
+        const base = baselineRows.find(b => b.instance === r.instance && b.algo === r.algo);
+        return `
+          <tr>
+            <td><strong>Inst ${r.instance}</strong> <span class="subtitle">(${r.n}→${r.m})</span></td>
+            <td><strong>${r.algo}</strong></td>
+            <td><strong>${r.cout_min}</strong> ${deltaBadge(r.cout_min, base?.cout_min)}</td>
+            <td>${r.cout_moy.toFixed(2)} <span class="subtitle">± ${r.cout_std.toFixed(2)}</span></td>
+            <td>${r.cout_max}</td>
+            <td>${r.temps_moy.toFixed(2)}s ${deltaBadge(r.temps_moy, base?.temps_moy, "s")}</td>
+            <td>${Math.round(r.evals_moy)} ${deltaBadge(r.evals_moy, base?.evals_moy)}</td>
+            <td class="mono mapping-cell" title="Cliquer pour copier : ${r.meilleur_mapping}" onclick="navigator.clipboard?.writeText('${r.meilleur_mapping}')">${r.meilleur_mapping || "-"}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderEvolutionChart() {
+      const metric = document.getElementById("evo-metric").value;
+      const instFilter = document.getElementById("evo-instance").value;
+      const allAlgos = Array.from(state.activeAlgos).sort();
+
+      const labels = state.runs.map(run => {
+        const note = run.note ? ` (${run.note})` : "";
+        return `${run.timestamp_label} [${run.git_commit}]${note}`;
+      });
+
+      const datasets = allAlgos.map(algo => {
+        const c = algoColor(algo, allAlgos);
+        const data = state.runs.map(run => {
+          const rows = state.rows.filter(r =>
+            r.run_id === run.run_id &&
+            r.algo === algo &&
+            (instFilter === "all" ? state.activeInstances.has(r.instance) : r.instance === Number(instFilter))
+          );
+          if (rows.length === 0) return null;
+          const avg = rows.reduce((s, r) => s + r[metric], 0) / rows.length;
+          return Number(avg.toFixed(3));
+        });
+        return {
+          label: algo,
+          data,
+          borderColor: c,
+          backgroundColor: c + "33",
+          borderWidth: 2.5,
+          pointRadius: 4,
+          spanGaps: true,
+          tension: 0.2
+        };
+      });
+
+      destroyChart("evolution");
+      state.charts["evolution"] = new Chart(document.getElementById("chart-evolution"), {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1" } } },
+          scales: {
+            x: { ticks: { color: "#94a3b8", maxRotation: 25 }, grid: { color: "rgba(148,163,184,0.1)" } },
+            y: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,0.1)" } }
+          }
+        }
+      });
+    }
+
+    function renderRecordsAndHistory() {
+      const recBody = document.querySelector("#records-table tbody");
+      const recs = Object.values(state.records || {}).sort((a, b) => a.instance - b.instance);
+      recBody.innerHTML = recs.length ? recs.map(r => `
+        <tr>
+          <td><strong>Instance ${r.instance}</strong></td>
+          <td><span class="badge badge-good">${r.cout}</span></td>
+          <td class="mono">${r.fichier}</td>
+          <td class="mono">${r.mapping}</td>
+        </tr>
+      `).join("") : '<tr><td colspan="4" class="subtitle">Aucun fichier Challenge trouvé.</td></tr>';
+
+      const histBody = document.querySelector("#history-table tbody");
+      histBody.innerHTML = [...state.runs].reverse().map(run => `
+        <tr>
+          <td><strong>${run.timestamp_label}</strong></td>
+          <td>${run.auteur || '<span class="subtitle">-</span>'}</td>
+          <td class="mono">${run.git_branch}</td>
+          <td class="mono">${run.git_commit} ${run.git_dirty === "dirty" ? '<span class="badge badge-warn">dirty</span>' : ''}</td>
+          <td>${run.note || '<span class="subtitle">-</span>'}</td>
+          <td>${Array.from(run.algos).sort().join(", ")}</td>
+          <td>${Array.from(run.instances).sort((a, b) => a - b).join(", ")}</td>
+          <td>${run.nb_runs}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderAll() {
+      const currentRows = getFilteredRunRows(state.selectedRunId);
+      const baselineRows = state.baselineRunId ? getFilteredRunRows(state.baselineRunId) : [];
+      renderKPIs(currentRows);
+      renderSnapshotCharts(currentRows);
+      renderSnapshotTable(currentRows, baselineRows);
+      renderEvolutionChart();
+      renderRecordsAndHistory();
+    }
+
+    // Événements UI
+    document.getElementById("run-select").addEventListener("change", (e) => {
+      state.selectedRunId = e.target.value;
+      renderAll();
+    });
+    document.getElementById("baseline-select").addEventListener("change", (e) => {
+      state.baselineRunId = e.target.value;
+      renderAll();
+    });
+    document.getElementById("evo-metric").addEventListener("change", renderEvolutionChart);
+    document.getElementById("evo-instance").addEventListener("change", renderEvolutionChart);
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+      });
+    });
+
+    document.querySelectorAll("#snapshot-table th[data-sort]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (state.sortKey === key) state.sortAsc = !state.sortAsc;
+        else { state.sortKey = key; state.sortAsc = true; }
+        const currentRows = getFilteredRunRows(state.selectedRunId);
+        const baselineRows = state.baselineRunId ? getFilteredRunRows(state.baselineRunId) : [];
+        renderSnapshotTable(currentRows, baselineRows);
+      });
+    });
+
+    document.getElementById("csv-upload").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        state.rows = parseCSV(ev.target.result);
+        state.generatedAt = `Import CSV (${file.name})`;
+        initControls();
+      };
+      reader.readAsText(file, "utf-8");
+    });
+
+    initControls();
+  </script>
+</body>
+</html>
+"""
+
+
+if __name__ == "__main__":
+    out = generate_html_report()
+    print(f"Rapport HTML généré : {out}")
