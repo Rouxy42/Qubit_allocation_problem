@@ -1,0 +1,2 @@
+run_id,timestamp_iso,timestamp_label,auteur,git_branch,git_commit,git_dirty,note,nb_runs,instance,n,m,algo,nom_affiche,cout_min,cout_moy,cout_max,cout_std,temps_moy,temps_min,temps_max,evals_moy,meilleur_mapping
+2026-11-28_15h07m04,2026-11-28T15:07:04,28/11/2026 à 15h07,Babilou,feat/insulaire,f438039,dirty,test modele insulaire 2 iles,3,1,12,16,genetique,Algo Génétique,33,33.666666666666664,34,0.5773502691896257,10.73268953959147,7.5250608921051025,14.628684043884277,698.6666666666666,2 15 8 13 0 5 1 7 14 10 12 3
