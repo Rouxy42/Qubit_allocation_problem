@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── Benchmark ──────────────────────────────────────────────────────────────
+# Le HTML est généré localement depuis runs/*.csv, pas besoin de le versionner.
+# Après un git pull, régénérer avec : python3 src/benchmark/benchmark.py --report-only
+src/benchmark/benchmark_report.html
+# Fichier temporaire généré par l'écriture atomique
+src/benchmark/benchmark_report.html.tmp
